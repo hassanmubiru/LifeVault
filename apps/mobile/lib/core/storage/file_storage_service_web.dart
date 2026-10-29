@@ -1,22 +1,51 @@
-// ignore: deprecated_member_use
-// Using dart:html for web file downloads - works but deprecated in favor of package:web
+import 'dart:js_interop';
 import 'dart:typed_data';
-import 'dart:html' as html;
-import 'package:uuid/uuid.dart';
+import 'package:web/web.dart' as web;
 
 class FileStorageService {
   static final Map<String, Uint8List> _inMemoryFiles = {};
 
   Future<String> saveFile(Uint8List bytes, String originalName) async {
-    final fileName = '${const Uuid().v4()}${_getExtension(originalName)}';
+    final fileName = '${DateTime.now().millisecondsSinceEpoch}_$originalName';
     _inMemoryFiles[fileName] = bytes;
 
-    _triggerDownload(bytes, fileName, _getMimeType(originalName));
+    try {
+      final mimeType = _getMimeType(originalName);
+      final jsBytes = bytes.toJS;
+      final blob = web.Blob([jsBytes].toJS, web.BlobPropertyBag(type: mimeType));
+      final objectUrl = web.URL.createObjectURL(blob);
+
+      final anchor = web.document.createElement('a') as web.HTMLAnchorElement
+        ..href = objectUrl
+        ..download = originalName
+        ..style.display = 'none';
+
+      web.document.body?.append(anchor);
+      anchor.click();
+      anchor.remove();
+
+      web.URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      // Fallback: try using data URL approach
+      try {
+        final dataUrl = 'data:${_getMimeType(originalName)};base64,${bytes.toBase64String()}';
+        final anchor = web.document.createElement('a') as web.HTMLAnchorElement
+          ..href = dataUrl
+          ..download = originalName
+          ..style.display = 'none';
+
+        web.document.body?.append(anchor);
+        anchor.click();
+        anchor.remove();
+      } catch (e2) {
+        throw Exception('Failed to trigger download: $e, fallback: $e2');
+      }
+    }
 
     return fileName;
   }
 
-  Future<Uint8List?> getFileBytes(String fileName) async {
+  Future<Uint8List?> getFile(String fileName) async {
     return _inMemoryFiles[fileName];
   }
 
@@ -24,30 +53,15 @@ class FileStorageService {
     _inMemoryFiles.remove(fileName);
   }
 
-  void _triggerDownload(Uint8List bytes, String fileName, String mimeType) {
-    final blob = html.Blob([bytes], mimeType);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute('download', fileName)
-      ..style.display = 'none';
-    html.document.body?.append(anchor);
-    anchor.click();
-    anchor.remove();
-    html.Url.revokeObjectUrl(url);
-  }
-
-  String _getExtension(String fileName) {
-    final lastDot = fileName.lastIndexOf('.');
-    if (lastDot == -1) return '';
-    return fileName.substring(lastDot);
-  }
-
   String _getMimeType(String fileName) {
-    final ext = _getExtension(fileName).toLowerCase();
+    final lastDot = fileName.lastIndexOf('.');
+    if (lastDot == -1) return 'application/octet-stream';
+    final ext = fileName.substring(lastDot).toLowerCase();
     switch (ext) {
       case '.pdf': return 'application/pdf';
       case '.txt': return 'text/plain';
-      case '.jpg': case '.jpeg': return 'image/jpeg';
+      case '.jpg': return 'image/jpeg';
+      case '.jpeg': return 'image/jpeg';
       case '.png': return 'image/png';
       case '.gif': return 'image/gif';
       case '.doc': return 'application/msword';
