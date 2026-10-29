@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import { streetApp } from 'streetjs';
 import { pool, connectDb } from './db.js';
+import { registerRoutes as registerAuthRoutes } from './auth/routes.js';
+import { registerDocumentRoutes } from './documents/routes.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const app = streetApp({ port: PORT });
@@ -24,6 +26,9 @@ app.use(async (ctx: any, next: any) => {
   }
   await next();
 });
+
+await registerAuthRoutes(app);
+await registerDocumentRoutes(app);
 
 app.listen(PORT, '0.0.0.0').then(async () => {
   try {

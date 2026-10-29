@@ -10,8 +10,6 @@ import {
   verifyToken,
   extractToken,
   checkRateLimit,
-  isValidEmail,
-  isValidPassword,
   sanitizeEmail,
 } from './middleware.js';
 
@@ -31,10 +29,6 @@ const refreshSchema = z.object({
   refreshToken: z.string().min(1),
 });
 
-const deviceNameSchema = z.object({
-  name: z.string().min(1).max(255),
-});
-
 export async function registerRoutes(app: any) {
   app.post('/auth/register', async (ctx: any) => {
     const body = ctx.body;
@@ -52,10 +46,6 @@ export async function registerRoutes(app: any) {
       return ctx.json({ error: 'Too many attempts', retryAfter: rateLimit.retryAfter }, 429);
     }
 
-    if (!isValidPassword(password)) {
-      return ctx.json({ error: 'Password must be 8-128 characters' }, 400);
-    }
-
     const passwordHash = hashPassword(password);
     const userId = generateSecureId();
     const deviceId = generateSecureId();
@@ -63,48 +53,35 @@ export async function registerRoutes(app: any) {
     const now = new Date().toISOString();
 
     try {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-
-        const existingUser = await client.query(
-          'SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL',
-          [cleanEmail]
-        );
-        if (existingUser.rows.length > 0) {
-          await client.query('ROLLBACK');
-          return ctx.json({ error: 'Email already registered' }, 409);
-        }
-
-        await client.query(
-          `INSERT INTO users (id, email, password_hash, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [userId, cleanEmail, passwordHash, now, now]
-        );
-
-        await client.query(
-          `INSERT INTO devices (id, user_id, name, public_key, created_at, last_seen_at)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [deviceId, userId, deviceName || 'Primary Device', null, now, now]
-        );
-
-        await client.query('COMMIT');
-
-        const accessToken = generateAccessToken(userId, deviceId);
-        const refreshToken = generateRefreshToken(userId, deviceId);
-
-        return ctx.json({
-          user: { id: userId, email: cleanEmail },
-          device: { id: deviceId, name: deviceName || 'Primary Device' },
-          accessToken,
-          refreshToken,
-        }, 201);
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-      } finally {
-        client.release();
+      const existingUser = await pool.query(
+        'SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL',
+        [cleanEmail]
+      );
+      if (existingUser.rows.length > 0) {
+        return ctx.json({ error: 'Email already registered' }, 409);
       }
+
+      await pool.query(
+        `INSERT INTO users (id, email, password_hash, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, cleanEmail, passwordHash, now, now]
+      );
+
+      await pool.query(
+        `INSERT INTO devices (id, user_id, name, public_key, created_at, last_seen_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [deviceId, userId, deviceName || 'Primary Device', null, now, now]
+      );
+
+      const accessToken = generateAccessToken(userId, deviceId);
+      const refreshToken = generateRefreshToken(userId, deviceId);
+
+      return ctx.json({
+        user: { id: userId, email: cleanEmail },
+        device: { id: deviceId, name: deviceName || 'Primary Device' },
+        accessToken,
+        refreshToken,
+      }, 201);
     } catch (err: any) {
       console.error('Registration error:', err.message);
       return ctx.json({ error: 'Registration failed' }, 500);
@@ -137,8 +114,8 @@ export async function registerRoutes(app: any) {
         return ctx.json({ error: 'Invalid credentials' }, 401);
       }
 
-      const user = userResult.rows[0];
-      if (!verifyPassword(password, user.password_hash)) {
+      const user = userResult.rows[0] as { id: string; password_hash: string; email: string };
+      if (!user.password_hash || !verifyPassword(password, user.password_hash)) {
         return ctx.json({ error: 'Invalid credentials' }, 401);
       }
 
@@ -181,7 +158,7 @@ export async function registerRoutes(app: any) {
     }
 
     const { userId, deviceId } = payload;
-    const newAccessToken = generateAccessToken(userId, deviceId);
+    const newAccessToken = generateAccessToken(userId, deviceId || '');
 
     return ctx.json({ accessToken: newAccessToken });
   });
