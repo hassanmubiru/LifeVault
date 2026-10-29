@@ -299,7 +299,7 @@ export async function registerSyncRoutes(app: any) {
             throw new Error(`Operation ${op} failed`);
           }
         } catch (err: any) {
-          const newRetry = item.retry_count + 1;
+          const newRetry = (item.retry_count ?? 0) + 1;
           if (newRetry >= 5) {
             await pool.query(
               `UPDATE sync_queue SET status = 'failed', retry_count = $1 WHERE id = $2`,
