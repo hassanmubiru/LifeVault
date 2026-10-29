@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:typed_data';
 import 'package:web/web.dart' as web;
@@ -28,7 +29,7 @@ class FileStorageService {
     } catch (e) {
       // Fallback: try using data URL approach
       try {
-        final dataUrl = 'data:${_getMimeType(originalName)};base64,${bytes.toBase64String()}';
+        final dataUrl = 'data:${_getMimeType(originalName)};base64,${base64Encode(bytes)}';
         final anchor = web.document.createElement('a') as web.HTMLAnchorElement
           ..href = dataUrl
           ..download = originalName
