@@ -1,12 +1,11 @@
 # Render Blueprint for LifeVault API
 # Deploy with: render blueprints create
+# Or import from GitHub in Render Dashboard → Blueprints
 
 services:
   - type: web
     name: lifevault-api
     env: node
-    region: oregon
-    plan: starter
     rootDir: apps/api
     buildCommand: npm run build
     startCommand: npm start
