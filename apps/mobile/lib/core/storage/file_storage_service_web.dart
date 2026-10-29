@@ -1,5 +1,6 @@
+// ignore: deprecated_member_use
+// Using dart:html for web file downloads - works but deprecated in favor of package:web
 import 'dart:typed_data';
-// ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
 import 'package:uuid/uuid.dart';
 

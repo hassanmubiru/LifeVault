@@ -1,13 +1,12 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:uuid/uuid.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:crypto/crypto.dart';
 import 'package:go_router/go_router.dart';
+import 'core/storage/file_storage_service.dart';
+import 'core/services/document_import_service.dart';
 
 final documentsProvider = StateNotifierProvider<DocumentsNotifier, List<Document>>((ref) {
   return DocumentsNotifier();
@@ -96,15 +95,15 @@ class DocumentsNotifier extends StateNotifier<List<Document>> {
       if (file != null) {
         final title = file.name;
         final extension = p.extension(file.name).toLowerCase();
-        final mimeType = _getMimeType(extension);
-        final size = await file.length();
+        final bytes = await file.readAsBytes();
+        final size = bytes.length;
 
-        final sourceFile = File(file.path);
         final storageService = FileStorageService();
-        final savedPath = await storageService.saveFile(sourceFile, title);
+        final savedPath = await storageService.saveFile(bytes, title);
 
         final importService = DocumentImportService();
-        final contentHash = await importService.calculateHash(File(savedPath));
+        final contentHash = importService.calculateHashSync(bytes);
+        final mimeType = importService.getMimeType(extension);
 
         final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -178,20 +177,6 @@ class DocumentsNotifier extends StateNotifier<List<Document>> {
     ''', ['$query*']);
 
     return searchResults.map((m) => Document.fromMap(m)).toList();
-  }
-
-  String _getMimeType(String extension) {
-    switch (extension) {
-      case '.pdf': return 'application/pdf';
-      case '.txt': return 'text/plain';
-      case '.jpg': return 'image/jpeg';
-      case '.jpeg': return 'image/jpeg';
-      case '.png': return 'image/png';
-      case '.gif': return 'image/gif';
-      case '.doc': return 'application/msword';
-      case '.docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      default: return 'application/octet-stream';
-    }
   }
 }
 
@@ -276,50 +261,6 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_documents_created_at ON documents(created_at)');
     await db.execute('CREATE INDEX idx_documents_type ON documents(type)');
     await db.execute('CREATE INDEX idx_documents_hash ON documents(content_hash)');
-  }
-}
-
-class FileStorageService {
-  Future<Directory> get _docsDir async {
-    final appDir = await getApplicationDocumentsDirectory();
-    final docsDir = Directory(p.join(appDir.path, 'lifevault_docs'));
-    if (!await docsDir.exists()) {
-      await docsDir.create(recursive: true);
-    }
-    return docsDir;
-  }
-
-  Future<String> saveFile(File file, String originalName) async {
-    final docsDir = await _docsDir;
-    final ext = p.extension(originalName);
-    final fileName = '${const Uuid().v4()}$ext';
-    final targetPath = p.join(docsDir.path, fileName);
-    await file.copy(targetPath);
-    return targetPath;
-  }
-
-  Future<File> getFile(String path) async {
-    return File(path);
-  }
-
-  Future<void> deleteFile(String path) async {
-    final file = File(path);
-    if (await file.exists()) {
-      await file.delete();
-    }
-  }
-}
-
-class DocumentImportService {
-  Future<String> calculateHash(File file) async {
-    final bytes = await file.readAsBytes();
-    final digest = sha256.convert(bytes);
-    return digest.toString();
-  }
-
-  bool isSupportedType(String extension) {
-    const supported = ['.pdf', '.txt', '.jpg', '.jpeg', '.png', '.gif', '.bmp'];
-    return supported.contains(extension.toLowerCase());
   }
 }
 
