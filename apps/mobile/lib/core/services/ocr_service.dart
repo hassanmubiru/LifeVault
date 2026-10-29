@@ -34,7 +34,6 @@ class OcrService {
       return {
         'text': recognized.text,
         'blocks': blocks,
-        'languages': recognized.inputImage.language,
       };
     } catch (e) {
       return null;

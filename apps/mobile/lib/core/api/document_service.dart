@@ -51,8 +51,8 @@ class DocumentService {
     final salt = _generateSaltFromIv(iv);
     final key = _encryption.deriveKey(documentId, salt);
 
-    final combined = [...iv, ...authTag, ...encryptedData];
-    final decrypted = _encryption.decryptBytes(combined, key);
+    final combined = [...encryptedData, ...authTag];
+    final decrypted = _encryption.decryptBytes(combined, key, iv);
 
     final file = File(savePath);
     await file.writeAsBytes(decrypted);

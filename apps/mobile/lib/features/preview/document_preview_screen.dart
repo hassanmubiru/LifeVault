@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 
