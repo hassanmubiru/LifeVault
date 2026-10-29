@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:crypto/crypto.dart';
+import 'package:go_router/go_router.dart';
 
 final documentsProvider = StateNotifierProvider<DocumentsNotifier, List<Document>>((ref) {
   return DocumentsNotifier();
@@ -79,7 +80,7 @@ class DocumentsNotifier extends StateNotifier<List<Document>> {
 
   Future<void> _loadDocuments() async {
     final db = await DatabaseHelper.instance.database;
-    final maps = await db.query('documents', orderBy: 'created_at DESC');
+    final maps = await db.query('documents', where: 'deleted_at IS NULL', orderBy: 'created_at DESC');
     state = maps.map((m) => Document.fromMap(m)).toList();
   }
 
@@ -122,6 +123,7 @@ class DocumentsNotifier extends StateNotifier<List<Document>> {
           'created_at': now,
           'updated_at': now,
           'metadata': '{}',
+          'deleted_at': null,
         });
 
         await db.execute(
@@ -150,7 +152,13 @@ class DocumentsNotifier extends StateNotifier<List<Document>> {
         }
       }
 
-      await db.delete('documents', where: 'id = ?', whereArgs: [id]);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await db.update(
+        'documents',
+        {'deleted_at': now, 'updated_at': now},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
 
       await _loadDocuments();
     } catch (e) {
@@ -202,9 +210,19 @@ class DatabaseHelper {
     String path = p.join(await getDatabasesPath(), 'lifevault.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE documents ADD COLUMN collection_id TEXT');
+      await db.execute('ALTER TABLE documents ADD COLUMN deleted_at INTEGER');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection_id)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_documents_deleted ON documents(deleted_at)');
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -220,7 +238,9 @@ class DatabaseHelper {
         size INTEGER NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
-        metadata TEXT
+        metadata TEXT,
+        collection_id TEXT,
+        deleted_at INTEGER
       )
     ''');
 
@@ -303,38 +323,219 @@ class DocumentImportService {
   }
 }
 
-void main() {
-  runApp(const ProviderScope(child: LifeVaultApp()));
-}
+class DocumentPreviewScreen extends StatelessWidget {
+  final String documentId;
+  final String filePath;
+  final String title;
+  final String type;
 
-class LifeVaultApp extends StatelessWidget {
-  const LifeVaultApp({super.key});
+  const DocumentPreviewScreen({
+    super.key,
+    required this.documentId,
+    required this.filePath,
+    required this.title,
+    required this.type,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'LifeVault',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      home: const HomeScreen(),
+      body: Center(
+        child: Text('Preview for $title (.${type})'),
+      ),
     );
   }
 }
 
-class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key});
+final _rootNavigatorKey = GlobalKey<NavigatorState>();
+final _shellNavigatorKey = GlobalKey<NavigatorState>();
+
+final appRouter = GoRouter(
+  navigatorKey: _rootNavigatorKey,
+  initialLocation: '/',
+  routes: [
+    GoRoute(
+      path: '/login',
+      builder: (context, state) => const AuthScreen(isLogin: true),
+    ),
+    GoRoute(
+      path: '/register',
+      builder: (context, state) => const AuthScreen(isLogin: false),
+    ),
+    ShellRoute(
+      navigatorKey: _shellNavigatorKey,
+      builder: (context, state, child) => MainShell(child: child),
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) => const HomeContent(),
+        ),
+        GoRoute(
+          path: '/collections',
+          builder: (context, state) => const CollectionsScreen(),
+        ),
+        GoRoute(
+          path: '/tags',
+          builder: (context, state) => const TagsScreen(),
+        ),
+        GoRoute(
+          path: '/reminders',
+          builder: (context, state) => const RemindersScreen(),
+        ),
+        GoRoute(
+          path: '/settings',
+          builder: (context, state) => const SettingsScreen(),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/preview/:id',
+      builder: (context, state) {
+        final docId = state.pathParameters['id']!;
+        final doc = appDocuments.firstWhere(
+          (d) => d.id == docId,
+          orElse: () => throw Exception('Document not found'),
+        );
+        return DocumentPreviewScreen(
+          documentId: doc.id,
+          filePath: doc.filePath,
+          title: doc.title,
+          type: doc.type,
+        );
+      },
+    ),
+  ],
+);
+
+List<Document> appDocuments = [];
+
+class AuthScreen extends ConsumerStatefulWidget {
+  final bool isLogin;
+  const AuthScreen({super.key, required this.isLogin});
 
   @override
-  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+  ConsumerState<AuthScreen> createState() => _AuthScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _AuthScreenState extends ConsumerState<AuthScreen> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+  String? _error;
+
   @override
   Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                widget.isLogin ? 'Welcome Back' : 'Create Account',
+                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 32),
+              TextField(
+                controller: _emailController,
+                decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _passwordController,
+                decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
+                obscureText: true,
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 16),
+                Text(_error!, style: const TextStyle(color: Colors.red)),
+              ],
+              const SizedBox(height: 24),
+              if (_isLoading)
+                const CircularProgressIndicator()
+              else ...[
+                ElevatedButton(
+                  onPressed: _submit,
+                  style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                  child: Text(widget.isLogin ? 'Login' : 'Register'),
+                ),
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () => context.go(widget.isLogin ? '/register' : '/login'),
+                  child: Text(widget.isLogin ? "Don't have an account? Register" : "Already have an account? Login"),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    setState(() { _isLoading = true; _error = null; });
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (mounted) {
+      setState(() => _isLoading = false);
+      if (widget.isLogin) {
+        context.go('/');
+      }
+    }
+  }
+}
+
+class MainShell extends StatefulWidget {
+  final Widget child;
+  const MainShell({super.key, required this.child});
+
+  @override
+  State<MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends State<MainShell> {
+  int _currentIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: widget.child,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (i) {
+          setState(() => _currentIndex = i);
+          switch (i) {
+            case 0: context.go('/'); break;
+            case 1: context.go('/collections'); break;
+            case 2: context.go('/tags'); break;
+            case 3: context.go('/reminders'); break;
+            case 4: context.go('/settings'); break;
+          }
+        },
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
+          NavigationDestination(icon: Icon(Icons.folder), label: 'Collections'),
+          NavigationDestination(icon: Icon(Icons.label), label: 'Tags'),
+          NavigationDestination(icon: Icon(Icons.notifications), label: 'Reminders'),
+          NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
+        ],
+      ),
+    );
+  }
+}
+
+class HomeContent extends ConsumerWidget {
+  const HomeContent({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final documents = ref.watch(documentsProvider);
+    appDocuments = documents;
 
     return Scaffold(
       appBar: AppBar(
@@ -346,13 +547,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             onPressed: () {
               showSearch(
                 context: context,
-                delegate: DocumentSearchDelegate(ref),
+                delegate: _DocumentSearchDelegate(ref),
               );
             },
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {},
           ),
         ],
       ),
@@ -363,15 +560,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 children: [
                   Icon(Icons.folder_open, size: 80, color: Colors.grey),
                   SizedBox(height: 16),
-                  Text(
-                    'No documents yet',
-                    style: TextStyle(fontSize: 18, color: Colors.grey),
-                  ),
+                  Text('No documents yet', style: TextStyle(fontSize: 18, color: Colors.grey)),
                   SizedBox(height: 8),
-                  Text(
-                    'Tap + to import your first document',
-                    style: TextStyle(color: Colors.grey),
-                  ),
+                  Text('Tap + to import your first document', style: TextStyle(color: Colors.grey)),
                 ],
               ),
             )
@@ -384,31 +575,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   margin: const EdgeInsets.symmetric(vertical: 4),
                   child: ListTile(
                     leading: _getIcon(doc.type),
-                    title: Text(
-                      doc.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      '${_formatSize(doc.size)} - ${_formatDate(doc.createdAt)}',
-                    ),
+                    title: Text(doc.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text('${_formatSize(doc.size)} - ${_formatDate(doc.createdAt)}'),
                     trailing: IconButton(
                       icon: const Icon(Icons.delete_outline),
                       onPressed: () async {
                         final confirm = await showDialog<bool>(
                           context: context,
-                          builder: (context) => AlertDialog(
+                          builder: (ctx) => AlertDialog(
                             title: const Text('Delete Document'),
                             content: Text('Delete "${doc.title}"?'),
                             actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context, false),
-                                child: const Text('Cancel'),
-                              ),
-                              TextButton(
-                                onPressed: () => Navigator.pop(context, true),
-                                child: const Text('Delete'),
-                              ),
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
                             ],
                           ),
                         );
@@ -417,14 +596,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         }
                       },
                     ),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => DocumentDetailScreen(document: doc),
-                        ),
-                      );
-                    },
+                    onTap: () => context.push('/preview/${doc.id}'),
                   ),
                 );
               },
@@ -440,39 +612,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _getIcon(String type) {
-    IconData icon;
-    Color color;
-
+    IconData icon; Color color;
     switch (type) {
-      case 'pdf':
-        icon = Icons.picture_as_pdf;
-        color = Colors.red;
-        break;
-      case 'txt':
-        icon = Icons.description;
-        color = Colors.blue;
-        break;
-      case 'jpg':
-      case 'jpeg':
-      case 'png':
-      case 'gif':
-        icon = Icons.image;
-        color = Colors.green;
-        break;
-      case 'doc':
-      case 'docx':
-        icon = Icons.article;
-        color = Colors.blueGrey;
-        break;
-      default:
-        icon = Icons.insert_drive_file;
-        color = Colors.grey;
+      case 'pdf': icon = Icons.picture_as_pdf; color = Colors.red; break;
+      case 'txt': icon = Icons.description; color = Colors.blue; break;
+      case 'jpg': case 'jpeg': case 'png': case 'gif':
+        icon = Icons.image; color = Colors.green; break;
+      case 'doc': case 'docx': icon = Icons.article; color = Colors.blueGrey; break;
+      default: icon = Icons.insert_drive_file; color = Colors.grey;
     }
-
-    return CircleAvatar(
-      backgroundColor: color.withValues(alpha: 0.1),
-      child: Icon(icon, color: color),
-    );
+    return CircleAvatar(backgroundColor: color.withValues(alpha: 0.1), child: Icon(icon, color: color));
   }
 
   String _formatSize(int bytes) {
@@ -481,51 +630,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
-  String _formatDate(int milliseconds) {
-    final date = DateTime.fromMillisecondsSinceEpoch(milliseconds);
-    return '${date.day}/${date.month}/${date.year}';
+  String _formatDate(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    return '${d.day}/${d.month}/${d.year}';
   }
 }
 
-class DocumentSearchDelegate extends SearchDelegate<Document?> {
+class _DocumentSearchDelegate extends SearchDelegate<Document?> {
   final WidgetRef ref;
+  _DocumentSearchDelegate(this.ref);
 
-  DocumentSearchDelegate(this.ref);
+  @override List<Widget>? buildActions(BuildContext context) => [
+    IconButton(icon: const Icon(Icons.clear), onPressed: () => query = ''),
+  ];
 
-  @override
-  List<Widget>? buildActions(BuildContext context) {
-    return [
-      IconButton(
-        icon: const Icon(Icons.clear),
-        onPressed: () {
-          query = '';
-        },
-      ),
-    ];
-  }
+  @override Widget? buildLeading(BuildContext context) => IconButton(
+    icon: const Icon(Icons.arrow_back),
+    onPressed: () => close(context, null),
+  );
 
-  @override
-  Widget? buildLeading(BuildContext context) {
-    return IconButton(
-      icon: const Icon(Icons.arrow_back),
-      onPressed: () {
-        close(context, null);
-      },
-    );
-  }
-
-  @override
-  Widget buildResults(BuildContext context) {
-    return _buildSearchResults(context);
-  }
-
-  @override
-  Widget buildSuggestions(BuildContext context) {
-    if (query.isEmpty) {
-      return const Center(child: Text('Enter a search term'));
-    }
-    return _buildSearchResults(context);
-  }
+  @override Widget buildResults(BuildContext context) => _buildSearchResults(context);
+  @override Widget buildSuggestions(BuildContext context) => query.isEmpty
+      ? const Center(child: Text('Enter a search term'))
+      : _buildSearchResults(context);
 
   Widget _buildSearchResults(BuildContext context) {
     return FutureBuilder<List<Document>>(
@@ -534,13 +661,8 @@ class DocumentSearchDelegate extends SearchDelegate<Document?> {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-
         final results = snapshot.data ?? [];
-
-        if (results.isEmpty) {
-          return const Center(child: Text('No documents found'));
-        }
-
+        if (results.isEmpty) return const Center(child: Text('No documents found'));
         return ListView.builder(
           itemCount: results.length,
           itemBuilder: (context, index) {
@@ -554,12 +676,7 @@ class DocumentSearchDelegate extends SearchDelegate<Document?> {
               subtitle: Text(doc.type),
               onTap: () {
                 close(context, doc);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DocumentDetailScreen(document: doc),
-                  ),
-                );
+                context.push('/preview/${doc.id}');
               },
             );
           },
@@ -569,72 +686,113 @@ class DocumentSearchDelegate extends SearchDelegate<Document?> {
   }
 }
 
-class DocumentDetailScreen extends StatelessWidget {
-  final Document document;
-
-  const DocumentDetailScreen({super.key, required this.document});
+class CollectionsScreen extends StatelessWidget {
+  const CollectionsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(document.title),
+        title: const Text('Collections'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.more_vert),
-            onPressed: () {},
-          ),
-        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildInfoRow('Type', document.type.toUpperCase()),
-            _buildInfoRow('Size', _formatSize(document.size)),
-            _buildInfoRow('Created', _formatDate(document.createdAt)),
-            _buildInfoRow('Hash', '${document.contentHash.substring(0, 16)}...'),
-            if (document.mimeType != null)
-              _buildInfoRow('MIME Type', document.mimeType!),
-          ],
-        ),
+      body: const Center(child: Text('No collections yet')),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {},
+        child: const Icon(Icons.add),
       ),
     );
   }
+}
 
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+class TagsScreen extends StatelessWidget {
+  const TagsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Tags'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: const Center(child: Text('No tags yet')),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {},
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class RemindersScreen extends StatelessWidget {
+  const RemindersScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Reminders'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: const Center(child: Text('No reminders set')),
+    );
+  }
+}
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: ListView(
         children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-            ),
+          ListTile(
+            leading: const Icon(Icons.fingerprint),
+            title: const Text('Biometric Lock'),
+            subtitle: const Text('Enable biometric authentication'),
+            trailing: Switch(value: false, onChanged: (v) {}),
           ),
-          Expanded(child: Text(value)),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.sync),
+            title: const Text('Sync Now'),
+            subtitle: const Text('Sync documents with server'),
+            onTap: () {},
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('Logout', style: TextStyle(color: Colors.red)),
+            onTap: () => context.go('/login'),
+          ),
         ],
       ),
     );
   }
+}
 
-  String _formatSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
+void main() {
+  runApp(const ProviderScope(child: LifeVaultApp()));
+}
 
-  String _formatDate(int milliseconds) {
-    final date = DateTime.fromMillisecondsSinceEpoch(milliseconds);
-    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+class LifeVaultApp extends StatelessWidget {
+  const LifeVaultApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp.router(
+      title: 'LifeVault',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+      ),
+      routerConfig: appRouter,
+    );
   }
 }
