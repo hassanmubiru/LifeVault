@@ -24,7 +24,7 @@ dependencies:
   permission_handler: ^11.1.0
   image_picker: ^1.0.4
   syncfusion_flutter_pdf: ^24.1.41
-  google_mlkit_text_recognition: ^0.11.0
+  google_mlkit_text_recognition: ^0.17.1
   intl: ^0.18.1
 
 dev_dependencies:
