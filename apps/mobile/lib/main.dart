@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_selector/file_selector.dart';
@@ -600,7 +599,7 @@ class DocumentDetailScreen extends StatelessWidget {
             _buildInfoRow('Type', document.type.toUpperCase()),
             _buildInfoRow('Size', _formatSize(document.size)),
             _buildInfoRow('Created', _formatDate(document.createdAt)),
-            _buildInfoRow('Hash', document.contentHash.substring(0, 16) + '...'),
+            _buildInfoRow('Hash', '${document.contentHash.substring(0, 16)}...'),
             if (document.mimeType != null)
               _buildInfoRow('MIME Type', document.mimeType!),
           ],
