@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { pool } from '../db.js';
 import { verifyToken, extractToken } from '../auth/middleware.js';
+import { syncDocumentToTypesense } from '../search/typesense.js';
 
 const STORAGE_PATH = process.env.DOCUMENT_STORAGE_PATH || '/tmp/lifevault_docs';
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -96,12 +97,8 @@ export async function registerSyncRoutes(app: any) {
         return ctx.json({ error: 'File too large' }, 413);
       }
 
-      const ivBuffer = Buffer.from(iv, 'base64');
-      const authTagBuffer = Buffer.from(authTag, 'base64');
-
-      const storageKey = crypto.randomBytes(32);
       const salt = crypto.randomBytes(16);
-      const key = deriveKey(storageKey.toString('hex'), salt);
+      const key = deriveKey(documentId, salt);
 
       const { encrypted, iv: newIv, authTag: newAuthTag } = encryptBuffer(dataBuffer, key);
 
@@ -128,6 +125,10 @@ export async function registerSyncRoutes(app: any) {
          VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7)`,
         [crypto.randomUUID(), userId, deviceId, 'upload', documentId, JSON.stringify({ filePath, contentHash }), now]
       );
+
+      syncDocumentToTypesense(documentId).catch(err => {
+        console.error('Typesense sync failed:', err);
+      });
 
       return ctx.json({
         success: true,
@@ -161,8 +162,8 @@ export async function registerSyncRoutes(app: any) {
         const metaData = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
         const fileData = await fs.readFile(filePath);
 
-        const ivBuffer = Buffer.from(metaData.salt, 'base64');
-        const key = deriveKey(crypto.randomBytes(32).toString('hex'), ivBuffer);
+        const saltBuffer = Buffer.from(metaData.salt, 'base64');
+        const key = deriveKey(documentId, saltBuffer);
 
         const ivFromFile = fileData.subarray(0, 12);
         const authTagFromFile = fileData.subarray(12, 28);

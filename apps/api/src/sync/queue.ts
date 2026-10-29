@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 
 const MAX_RETRIES = 5;
 const RETRY_DELAYS = [1000, 5000, 15000, 30000, 60000];
+const STORAGE_PATH = process.env.DOCUMENT_STORAGE_PATH || '/tmp/lifevault_docs';
 
 interface SyncQueueItem {
   id: string;
@@ -14,14 +15,92 @@ interface SyncQueueItem {
   retry_count: number;
 }
 
+function deriveKey(password: string, salt: Buffer): Buffer {
+  return crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha512');
+}
+
+async function ensureStorageDir(userId: string): Promise<string> {
+  const fs = await import('fs/promises');
+  const storageDir = `${STORAGE_PATH}/${userId}`;
+  try {
+    await fs.mkdir(storageDir, { recursive: true });
+  } catch {}
+  return storageDir;
+}
+
 async function processUpload(payload: any, userId: string, deviceId: string): Promise<boolean> {
-  console.log(`Processing upload for user ${userId}, device ${deviceId}`);
-  return true;
+  try {
+    const { documentId, encryptedData, iv, authTag, contentHash, salt } = payload;
+
+    const dataBuffer = Buffer.from(encryptedData, 'base64');
+    const ivBuffer = Buffer.from(iv, 'base64');
+    const authTagBuffer = Buffer.from(authTag, 'base64');
+    const saltBuffer = Buffer.from(salt, 'base64');
+
+    const key = deriveKey(documentId, saltBuffer);
+
+    const storageDir = await ensureStorageDir(userId);
+    const filePath = `${storageDir}/${documentId}.enc`;
+    const metaPath = `${storageDir}/${documentId}.meta`;
+
+    const fs = await import('fs/promises');
+
+    const encrypted = Buffer.concat([ivBuffer, authTagBuffer, dataBuffer]);
+    await fs.writeFile(filePath, encrypted);
+    await fs.writeFile(metaPath, JSON.stringify({
+      salt,
+      contentHash,
+      uploadedAt: new Date().toISOString(),
+      deviceId,
+    }));
+
+    await pool.query(
+      `UPDATE documents SET synced = true, storage_path = $1, updated_at = $2
+       WHERE id = $3 AND user_id = $4`,
+      [filePath, new Date().toISOString(), documentId, userId]
+    );
+
+    console.log(`Upload processed for document ${documentId}, user ${userId}`);
+    return true;
+  } catch (err) {
+    console.error('Upload process error:', err);
+    return false;
+  }
 }
 
 async function processDownload(documentId: string, userId: string): Promise<any> {
-  console.log(`Processing download for document ${documentId}, user ${userId}`);
-  return null;
+  try {
+    const storageDir = `${STORAGE_PATH}/${userId}`;
+    const filePath = `${storageDir}/${documentId}.enc`;
+    const metaPath = `${storageDir}/${documentId}.meta`;
+
+    const fs = await import('fs/promises');
+
+    const metaData = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
+    const fileData = await fs.readFile(filePath);
+
+    const saltBuffer = Buffer.from(metaData.salt, 'base64');
+    const key = deriveKey(documentId, saltBuffer);
+
+    const ivFromFile = fileData.subarray(0, 12);
+    const authTagFromFile = fileData.subarray(12, 28);
+    const encryptedData = fileData.subarray(28);
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, ivFromFile);
+    decipher.setAuthTag(authTagFromFile);
+    const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+
+    console.log(`Download processed for document ${documentId}, user ${userId}`);
+    return {
+      encryptedData: decrypted.toString('base64'),
+      iv: ivFromFile.toString('base64'),
+      authTag: authTagFromFile.toString('base64'),
+      contentHash: metaData.contentHash,
+    };
+  } catch (err) {
+    console.error('Download process error:', err);
+    return null;
+  }
 }
 
 async function processDelete(documentId: string, userId: string): Promise<boolean> {
