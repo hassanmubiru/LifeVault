@@ -85,7 +85,6 @@ class _AesGcmCipher {
   List<int> decrypt(List<int> data) {
     if (data.length < 16) return [];
 
-    final _authTag = data.sublist(data.length - 16);
     final encrypted = data.sublist(0, data.length - 16);
     final hmacKey = sha256.convert(key).bytes;
     final decrypted = <int>[];

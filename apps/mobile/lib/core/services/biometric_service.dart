@@ -53,6 +53,7 @@ class BiometricService {
   Future<void> cancelAuthentication() async {
     try {
       await _auth.stopAuthentication();
+      // ignore: empty_catches
     } on PlatformException {}
   }
 }

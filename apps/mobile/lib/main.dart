@@ -345,7 +345,7 @@ class DocumentPreviewScreen extends StatelessWidget {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: Center(
-        child: Text('Preview for $title (.${type})'),
+        child: Text('Preview for $title (.$type)'),
       ),
     );
   }
