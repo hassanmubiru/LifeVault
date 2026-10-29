@@ -1,17 +1,39 @@
-databaseUrl:
-  fromEnv: DATABASE_URL
+# Render Blueprint for LifeVault API
+# Deploy with: render blueprint create
 
-typesenseApiKey:
-  fromEnv: TYPESENSE_API_KEY
-
-typesenseHost:
-  fromEnv: TYPESENSE_HOST
-
-typesensePort:
-  fromEnv: TYPESENSE_PORT
-
-documentStoragePath:
-  fromEnv: DOCUMENT_STORAGE_PATH
-
-syncMaxFileSize:
-  fromEnv: SYNC_MAX_FILE_SIZE
+services:
+  - type: web
+    name: lifevault-api
+    env: node
+    region: oregon
+    plan: starter
+    buildCommand: npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PG_HOST
+        sync: false
+      - key: PG_PORT
+        value: "5432"
+      - key: PG_USER
+        sync: false
+      - key: PG_PASSWORD
+        sync: false
+      - key: PG_DATABASE
+        sync: false
+      - key: TYPESENSE_API_KEY
+        sync: false
+      - key: TYPESENSE_HOST
+        value: "localhost"
+      - key: TYPESENSE_PORT
+        value: "8108"
+      - key: DOCUMENT_STORAGE_PATH
+        value: "/tmp/lifevault_docs"
+      - key: SYNC_MAX_FILE_SIZE
+        value: "52428800"
