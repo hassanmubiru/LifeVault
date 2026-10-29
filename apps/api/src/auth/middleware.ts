@@ -1,9 +1,8 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET && process.env.NODE_ENV === 'production') {
-  throw new Error('JWT_SECRET environment variable is required in production');
+export function getJwtSecret(): string {
+  return process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 }
 
 const ALGORITHM = 'aes-256-gcm';
@@ -34,7 +33,7 @@ function createSignature(header: string, payload: string, secret: string): strin
 }
 
 export function generateAccessToken(userId: string, deviceId?: string): string {
-  const secret = JWT_SECRET || crypto.randomBytes(32).toString('hex');
+  const secret = getJwtSecret();
   const now = Math.floor(Date.now() / 1000);
   const payload: TokenPayload = {
     userId,
@@ -51,7 +50,7 @@ export function generateAccessToken(userId: string, deviceId?: string): string {
 }
 
 export function generateRefreshToken(userId: string, deviceId?: string): string {
-  const secret = JWT_SECRET || crypto.randomBytes(32).toString('hex');
+  const secret = getJwtSecret();
   const now = Math.floor(Date.now() / 1000);
   const payload: TokenPayload = {
     userId,
@@ -68,14 +67,23 @@ export function generateRefreshToken(userId: string, deviceId?: string): string 
 }
 
 export function verifyToken(token: string): TokenPayload | null {
-  const secret = JWT_SECRET || crypto.randomBytes(32).toString('hex');
+  const secret = getJwtSecret();
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const [headerB64, payloadB64, signature] = parts;
   const expectedSig = createSignature(headerB64, payloadB64, secret);
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+
+  const sigBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSig);
+
+  if (sigBuffer.length !== expectedBuffer.length) {
     return null;
   }
+
+  if (!crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+    return null;
+  }
+
   try {
     const payloadJson = base64UrlDecode(payloadB64).toString();
     const payload = JSON.parse(payloadJson) as TokenPayload;

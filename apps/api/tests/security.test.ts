@@ -1,5 +1,9 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert';
+
+const TEST_SECRET = 'test-secret-for-token-verification!!';
+process.env.JWT_SECRET = TEST_SECRET;
+
 import {
   hashPassword,
   verifyPassword,
@@ -42,12 +46,12 @@ describe('Password Hashing', () => {
     assert.ok(!verifyPassword('password', 'onlyonepart'));
   });
 
-  test('timing safe comparison works', () => {
-    const hash = hashPassword('testpass123');
+  test('verifyPassword produces different hashes for same password', () => {
+    const hash1 = hashPassword('testpass123');
     const hash2 = hashPassword('testpass123');
-    assert.ok(hash !== hash2);
-    assert.ok(verifyPassword('testpass123', hash));
-    assert.ok(!verifyPassword('testpass123', hash2));
+    assert.ok(hash1 !== hash2);
+    assert.ok(verifyPassword('testpass123', hash1));
+    assert.ok(verifyPassword('testpass123', hash2));
   });
 });
 
@@ -80,12 +84,10 @@ describe('Token Generation', () => {
     assert.strictEqual(payload.type, 'refresh');
   });
 
-  test('verifyToken rejects expired token', () => {
-    process.env.JWT_SECRET = 'test-secret-32-characters-long!!';
+  test('verifyToken accepts valid token', () => {
     const token = generateAccessToken('user-123');
     const payload = verifyToken(token);
     assert.ok(payload);
-    process.env.JWT_SECRET = undefined;
   });
 
   test('verifyToken rejects invalid token format', () => {
@@ -99,6 +101,14 @@ describe('Token Generation', () => {
     const [h, p, s] = token.split('.');
     const tamperedToken = `${h}.${p}.wrongsignature`;
     assert.strictEqual(verifyToken(tamperedToken), null);
+  });
+
+  test('verifyToken rejects token with wrong secret', () => {
+    process.env.JWT_SECRET = 'secret-one';
+    const token = generateAccessToken('user-123');
+    process.env.JWT_SECRET = 'secret-two';
+    assert.strictEqual(verifyToken(token), null);
+    process.env.JWT_SECRET = TEST_SECRET;
   });
 });
 

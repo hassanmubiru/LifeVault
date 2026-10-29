@@ -130,22 +130,18 @@ export async function registerDocumentRoutes(app: any) {
     const docId = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    const client = await pool.connect();
     try {
-      await client.query('BEGIN');
-
       if (collectionId) {
-        const colCheck = await client.query(
+        const colCheck = await pool.query(
           'SELECT id FROM collections WHERE id = $1 AND user_id = $2',
           [collectionId, userId]
         );
         if (colCheck.rows.length === 0) {
-          await client.query('ROLLBACK');
           return ctx.json({ error: 'Collection not found' }, 404);
         }
       }
 
-      const docResult = await client.query(
+      const docResult = await pool.query(
         `INSERT INTO documents (id, user_id, device_id, title, type, mime_type, size, content_hash, collection_id, metadata, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING *`,
@@ -155,7 +151,7 @@ export async function registerDocumentRoutes(app: any) {
       if (tags && tags.length > 0) {
         for (const tagName of tags) {
           let tagId;
-          const existingTag = await client.query(
+          const existingTag = await pool.query(
             'SELECT id FROM tags WHERE user_id = $1 AND name = $2',
             [userId, tagName]
           );
@@ -164,27 +160,23 @@ export async function registerDocumentRoutes(app: any) {
             tagId = existingTag.rows[0].id;
           } else {
             tagId = crypto.randomUUID();
-            await client.query(
+            await pool.query(
               'INSERT INTO tags (id, user_id, name, created_at) VALUES ($1, $2, $3, $4)',
               [tagId, userId, tagName, now]
             );
           }
 
-          await client.query(
+          await pool.query(
             'INSERT INTO document_tags (document_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
             [docId, tagId]
           );
         }
       }
 
-      await client.query('COMMIT');
       return ctx.json({ document: docResult.rows[0] }, 201);
     } catch (err: any) {
-      await client.query('ROLLBACK');
       console.error('Create document error:', err.message);
       return ctx.json({ error: 'Failed to create document' }, 500);
-    } finally {
-      client.release();
     }
   });
 

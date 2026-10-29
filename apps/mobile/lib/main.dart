@@ -12,6 +12,7 @@ class LifeVaultApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'LifeVault',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),

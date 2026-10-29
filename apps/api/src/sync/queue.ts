@@ -1,18 +1,17 @@
 import crypto from 'node:crypto';
 import { pool } from '../db.js';
-import { verifyToken } from '../auth/middleware.js';
 
 const MAX_RETRIES = 5;
 const RETRY_DELAYS = [1000, 5000, 15000, 30000, 60000];
 
 interface SyncQueueItem {
   id: string;
-  userId: string;
-  deviceId: string | null;
+  user_id: string;
+  device_id: string | null;
   operation: string;
-  documentId: string | null;
+  document_id: string | null;
   payload: any;
-  retryCount: number;
+  retry_count: number;
 }
 
 async function processUpload(payload: any, userId: string, deviceId: string): Promise<boolean> {
@@ -57,7 +56,7 @@ export async function processNextSyncItem(): Promise<{ processed: number; failed
       return result;
     }
 
-    const item: SyncQueueItem = itemResult.rows[0];
+    const item = itemResult.rows[0] as unknown as SyncQueueItem;
 
     await pool.query(
       `UPDATE sync_queue SET status = 'processing' WHERE id = $1`,
@@ -69,13 +68,13 @@ export async function processNextSyncItem(): Promise<{ processed: number; failed
 
       switch (item.operation) {
         case 'upload':
-          success = await processUpload(item.payload, item.userId, item.deviceId || '');
+          success = await processUpload(item.payload, item.user_id, item.device_id || '');
           break;
         case 'download':
-          success = await processDownload(item.documentId || '', item.userId) !== null;
+          success = await processDownload(item.document_id || '', item.user_id) !== null;
           break;
         case 'delete':
-          success = await processDelete(item.documentId || '', item.userId);
+          success = await processDelete(item.document_id || '', item.user_id);
           break;
         default:
           console.error(`Unknown sync operation: ${item.operation}`);
@@ -92,7 +91,7 @@ export async function processNextSyncItem(): Promise<{ processed: number; failed
         throw new Error(`Operation ${item.operation} failed`);
       }
     } catch (err: any) {
-      const newRetryCount = item.retryCount + 1;
+      const newRetryCount = item.retry_count + 1;
 
       if (newRetryCount >= MAX_RETRIES) {
         await pool.query(
