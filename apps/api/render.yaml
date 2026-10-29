@@ -1,0 +1,17 @@
+databaseUrl:
+  fromEnv: DATABASE_URL
+
+typesenseApiKey:
+  fromEnv: TYPESENSE_API_KEY
+
+typesenseHost:
+  fromEnv: TYPESENSE_HOST
+
+typesensePort:
+  fromEnv: TYPESENSE_PORT
+
+documentStoragePath:
+  fromEnv: DOCUMENT_STORAGE_PATH
+
+syncMaxFileSize:
+  fromEnv: SYNC_MAX_FILE_SIZE
