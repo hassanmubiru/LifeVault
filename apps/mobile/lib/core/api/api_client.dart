@@ -39,18 +39,18 @@ class ApiClient {
     final headers = <String, String>{
       'Content-Type': 'application/json',
     };
-    if (auth) {
-      final t = token ?? (accessToken as dynamic);
-      if (t != null) headers['Authorization'] = 'Bearer $t';
+    if (auth && token != null) {
+      headers['Authorization'] = 'Bearer $token';
     }
     return headers;
   }
 
-  Future<Map<String, dynamic>?> get(String path, {bool auth = true}) async {
+  Future<Map<String, dynamic>?> get(String path, {bool auth = true, String? token}) async {
     try {
+      final t = auth ? (token ?? await accessToken) : null;
       final resp = await http.get(
         Uri.parse('$baseUrl$path'),
-        headers: _headers(auth: auth),
+        headers: _headers(auth: auth, token: t),
       ).timeout(const Duration(seconds: 30));
       return _handleResponse(resp);
     } catch (e) {
@@ -58,11 +58,12 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>?> post(String path, {Map<String, dynamic>? body, bool auth = true}) async {
+  Future<Map<String, dynamic>?> post(String path, {Map<String, dynamic>? body, bool auth = true, String? token}) async {
     try {
+      final t = auth ? (token ?? await accessToken) : null;
       final resp = await http.post(
         Uri.parse('$baseUrl$path'),
-        headers: _headers(auth: auth),
+        headers: _headers(auth: auth, token: t),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(const Duration(seconds: 30));
       return _handleResponse(resp);
@@ -71,11 +72,12 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>?> put(String path, {Map<String, dynamic>? body, bool auth = true}) async {
+  Future<Map<String, dynamic>?> put(String path, {Map<String, dynamic>? body, bool auth = true, String? token}) async {
     try {
+      final t = auth ? (token ?? await accessToken) : null;
       final resp = await http.put(
         Uri.parse('$baseUrl$path'),
-        headers: _headers(auth: auth),
+        headers: _headers(auth: auth, token: t),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(const Duration(seconds: 30));
       return _handleResponse(resp);
@@ -84,11 +86,12 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>?> patch(String path, {Map<String, dynamic>? body, bool auth = true}) async {
+  Future<Map<String, dynamic>?> patch(String path, {Map<String, dynamic>? body, bool auth = true, String? token}) async {
     try {
+      final t = auth ? (token ?? await accessToken) : null;
       final resp = await http.patch(
         Uri.parse('$baseUrl$path'),
-        headers: _headers(auth: auth),
+        headers: _headers(auth: auth, token: t),
         body: body != null ? jsonEncode(body) : null,
       ).timeout(const Duration(seconds: 30));
       return _handleResponse(resp);
@@ -97,11 +100,12 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>?> delete(String path, {bool auth = true}) async {
+  Future<Map<String, dynamic>?> delete(String path, {bool auth = true, String? token}) async {
     try {
+      final t = auth ? (token ?? await accessToken) : null;
       final resp = await http.delete(
         Uri.parse('$baseUrl$path'),
-        headers: _headers(auth: auth),
+        headers: _headers(auth: auth, token: t),
       ).timeout(const Duration(seconds: 30));
       return _handleResponse(resp);
     } catch (e) {
@@ -121,7 +125,7 @@ class ApiClient {
       final body = jsonDecode(resp.body) as Map<String, dynamic>;
       body['statusCode'] = resp.statusCode;
       return body;
-    } catch {
+    } catch (e) {
       return {'error': resp.body, 'statusCode': resp.statusCode};
     }
   }
