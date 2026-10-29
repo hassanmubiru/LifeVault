@@ -1,0 +1,16 @@
+{
+  "name": "lifevault",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:api": "npm run dev -w apps/api",
+    "build": "npm run build -w apps/api",
+    "typecheck": "npm run typecheck -w apps/api",
+    "test": "npm run test -w apps/api"
+  },
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  }
+}
