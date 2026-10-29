@@ -146,13 +146,13 @@ export async function syncDocumentToTypesense(documentId: string): Promise<void>
     if (result.rows.length > 0) {
       const row = result.rows[0];
       await indexDocument({
-        id: row.id,
-        type: row.type,
+        id: row.id as string,
+        type: row.type as string,
         tags: JSON.parse(row.tags || '[]'),
         collectionId: row.collection_id,
         collectionName: row.collection_name,
-        createdAt: new Date(row.created_at).getTime(),
-        updatedAt: new Date(row.updated_at).getTime(),
+        createdAt: new Date(row.created_at ?? Date.now()).getTime(),
+        updatedAt: new Date(row.updated_at ?? Date.now()).getTime(),
       });
     }
   } catch (e) {

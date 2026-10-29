@@ -40,7 +40,7 @@ class ApiClient {
       'Content-Type': 'application/json',
     };
     if (auth) {
-      final t = token ?? accessToken;
+      final t = token ?? (accessToken as dynamic);
       if (t != null) headers['Authorization'] = 'Bearer $t';
     }
     return headers;
