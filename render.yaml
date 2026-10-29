@@ -1,0 +1,30 @@
+# Render Blueprint for LifeVault API
+# Deploy with: render blueprints create
+
+services:
+  - type: web
+    name: lifevault-api
+    env: node
+    region: oregon
+    plan: starter
+    rootDir: apps/api
+    buildCommand: npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: TYPESENSE_API_KEY
+        sync: false
+      - key: TYPESENSE_HOST
+        value: "localhost"
+      - key: TYPESENSE_PORT
+        value: "8108"
+      - key: DOCUMENT_STORAGE_PATH
+        value: "/tmp/lifevault_docs"
