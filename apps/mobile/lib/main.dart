@@ -540,12 +540,60 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   }
 
   Future<void> _submit() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    if (email.isEmpty || password.isEmpty) {
+      setState(() { _error = 'Please fill in all fields'; _isLoading = false; });
+      return;
+    }
+
     setState(() { _isLoading = true; _error = null; });
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (mounted) {
-      setState(() => _isLoading = false);
+
+    try {
+      final deviceId = await apiClient.getOrCreateDeviceId();
+
+      Map<String, dynamic>? result;
       if (widget.isLogin) {
+        result = await apiClient.post('/auth/login', body: {
+          'email': email,
+          'password': password,
+          'deviceId': deviceId,
+        });
+      } else {
+        result = await apiClient.post('/auth/register', body: {
+          'email': email,
+          'password': password,
+          'deviceId': deviceId,
+        });
+      }
+
+      if (!mounted) return;
+
+      if (result == null || result.containsKey('error')) {
+        setState(() {
+          _error = result?['error'] ?? 'Connection failed';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      if (result.containsKey('accessToken')) {
+        await apiClient.setAccessToken(result['accessToken']);
+        if (result.containsKey('refreshToken')) {
+          await apiClient.setRefreshToken(result['refreshToken']);
+        }
+      }
+
+      if (mounted) {
         context.go('/');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Network error. Please try again.';
+          _isLoading = false;
+        });
       }
     }
   }
