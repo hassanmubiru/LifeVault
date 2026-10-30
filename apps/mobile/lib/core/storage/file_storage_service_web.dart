@@ -56,7 +56,7 @@ class FileStorageService {
   }
 
   String _btoa(String input) {
-    final chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
     final result = StringBuffer();
     var i = 0;
     
