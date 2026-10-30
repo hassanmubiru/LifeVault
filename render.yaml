@@ -19,11 +19,13 @@ services:
         generateValue: true
       - key: DATABASE_URL
         sync: false
+      - key: DOCUMENT_STORAGE_PATH
+        value: "/tmp/lifevault_docs"
       - key: TYPESENSE_API_KEY
         sync: false
       - key: TYPESENSE_HOST
-        value: "localhost"
+        sync: false
       - key: TYPESENSE_PORT
-        value: "8108"
-      - key: DOCUMENT_STORAGE_PATH
-        value: "/tmp/lifevault_docs"
+        sync: false
+      - key: SEARCH_MODE
+        value: "postgresql"

@@ -1,0 +1,85 @@
+name: Build Flutter APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+      
+      - name: Enable Flutter web
+        run: flutter config --enable-web
+      
+      - name: Cache Flutter dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            build/
+          key: ${{ runner.os }}-flutter-${{ hashFiles('apps/mobile/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-flutter-
+      
+      - name: Install Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get
+      
+      - name: Run Flutter analyze
+        working-directory: apps/mobile
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
+      
+      - name: Build debug APK
+        working-directory: apps/mobile
+        run: flutter build apk --debug
+      
+      - name: Build web
+        working-directory: apps/mobile
+        run: flutter build web
+      
+      - name: Upload APK to artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lifevault-debug-apk
+          path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
+      
+      - name: Upload web build to artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lifevault-web-build
+          path: apps/mobile/build/web
+          retention-days: 7
+      
+      - name: Get current release
+        id: current-release
+        run: |
+          if gh release view v1.0.0 --repo hassanmubiru/LifeVault &>/dev/null; then
+            echo "version=v1.0.0" >> $GITHUB_OUTPUT
+          else
+            echo "version=" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload APK to GitHub Release
+        if: steps.current-release.outputs.version != ''
+        run: |
+          gh release upload v1.0.0 apps/mobile/build/app/outputs/flutter-apk/app-debug.apk --repo hassanmubiru/LifeVault
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
