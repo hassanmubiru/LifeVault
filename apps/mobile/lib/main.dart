@@ -7,10 +7,130 @@ import 'package:sqflite/sqflite.dart';
 import 'package:go_router/go_router.dart';
 import 'core/storage/file_storage_service.dart';
 import 'core/services/document_import_service.dart';
+import 'core/services/collection_service.dart';
+import 'core/services/tag_service.dart';
+import 'core/services/reminder_service.dart';
+import 'core/api/api_client.dart';
+
+final apiClient = ApiClient();
 
 final documentsProvider = StateNotifierProvider<DocumentsNotifier, List<Document>>((ref) {
   return DocumentsNotifier();
 });
+
+final collectionsProvider = StateNotifierProvider<CollectionsNotifier, List<Collection>>((ref) {
+  return CollectionsNotifier();
+});
+
+final tagsProvider = StateNotifierProvider<TagsNotifier, List<Tag>>((ref) {
+  return TagsNotifier();
+});
+
+final remindersProvider = StateNotifierProvider<RemindersNotifier, List<Reminder>>((ref) {
+  return RemindersNotifier();
+});
+
+class CollectionsNotifier extends StateNotifier<List<Collection>> {
+  final CollectionService _service = CollectionService();
+  CollectionsNotifier() : super([]) {
+    _loadCollections();
+  }
+
+  Future<void> _loadCollections() async {
+    state = await _service.getAllCollections();
+  }
+
+  Future<void> createCollection(String name, String? description) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final collection = Collection(
+      id: const Uuid().v4(),
+      name: name,
+      description: description,
+      createdAt: now,
+      updatedAt: now,
+    );
+    await _service.createCollection(collection);
+    await _loadCollections();
+  }
+
+  Future<void> deleteCollection(String id) async {
+    await _service.deleteCollection(id);
+    await _loadCollections();
+  }
+
+  Future<void> refresh() async {
+    await _loadCollections();
+  }
+}
+
+class TagsNotifier extends StateNotifier<List<Tag>> {
+  final TagService _service = TagService();
+  TagsNotifier() : super([]) {
+    _loadTags();
+  }
+
+  Future<void> _loadTags() async {
+    state = await _service.getAllTags();
+  }
+
+  Future<void> createTag(String name) async {
+    final tag = Tag(
+      id: const Uuid().v4(),
+      name: name,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _service.createTag(tag);
+    await _loadTags();
+  }
+
+  Future<void> deleteTag(String id) async {
+    await _service.deleteTag(id);
+    await _loadTags();
+  }
+
+  Future<void> refresh() async {
+    await _loadTags();
+  }
+}
+
+class RemindersNotifier extends StateNotifier<List<Reminder>> {
+  final ReminderService _service = ReminderService();
+  RemindersNotifier() : super([]) {
+    _loadReminders();
+    _service.startPeriodicCheck();
+  }
+
+  Future<void> _loadReminders() async {
+    state = await _service.getUpcomingReminders();
+  }
+
+  Future<void> createReminder(String documentId, String title, DateTime remindAt, {String? note}) async {
+    final reminder = Reminder(
+      id: const Uuid().v4(),
+      documentId: documentId,
+      title: title,
+      note: note,
+      remindAt: remindAt,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _service.addReminder(reminder);
+    await _loadReminders();
+  }
+
+  Future<void> deleteReminder(String id) async {
+    await _service.deleteReminder(id);
+    await _loadReminders();
+  }
+
+  Future<void> dismissReminder(String id) async {
+    await _service.dismissReminder(id);
+    await _loadReminders();
+  }
+
+  Future<void> refresh() async {
+    await _loadReminders();
+  }
+}
 
 class Document {
   final String id;
@@ -627,20 +747,94 @@ class _DocumentSearchDelegate extends SearchDelegate<Document?> {
   }
 }
 
-class CollectionsScreen extends StatelessWidget {
+class CollectionsScreen extends ConsumerWidget {
   const CollectionsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final collections = ref.watch(collectionsProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Collections'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: const Center(child: Text('No collections yet')),
+      body: collections.isEmpty
+          ? const Center(child: Text('No collections yet'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(8),
+              itemCount: collections.length,
+              itemBuilder: (context, index) {
+                final col = collections[index];
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.blue.withValues(alpha: 0.1),
+                      child: const Icon(Icons.folder, color: Colors.blue),
+                    ),
+                    title: Text(col.name),
+                    subtitle: Text('${col.documentCount} documents'),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Delete Collection'),
+                            content: Text('Delete "${col.name}"?'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+                            ],
+                          ),
+                        );
+                        if (confirm == true) {
+                          await ref.read(collectionsProvider.notifier).deleteCollection(col.id);
+                        }
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {},
+        onPressed: () => _showCreateDialog(context, ref),
         child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  void _showCreateDialog(BuildContext context, WidgetRef ref) {
+    final nameController = TextEditingController();
+    final descController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New Collection'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Name')),
+            const SizedBox(height: 8),
+            TextField(controller: descController, decoration: const InputDecoration(labelText: 'Description (optional)')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              if (nameController.text.isNotEmpty) {
+                ref.read(collectionsProvider.notifier).createCollection(
+                  nameController.text,
+                  descController.text.isEmpty ? null : descController.text,
+                );
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
       ),
     );
   }
