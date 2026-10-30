@@ -859,18 +859,61 @@ class TagsScreen extends StatelessWidget {
   }
 }
 
-class RemindersScreen extends StatelessWidget {
+class RemindersScreen extends ConsumerWidget {
   const RemindersScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reminders = ref.watch(remindersProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Reminders'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: const Center(child: Text('No reminders set')),
+      body: reminders.isEmpty
+          ? const Center(child: Text('No reminders set'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(8),
+              itemCount: reminders.length,
+              itemBuilder: (context, index) {
+                final reminder = reminders[index];
+                final isDue = reminder.remindAt.isBefore(DateTime.now());
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: isDue ? Colors.red.withValues(alpha: 0.1) : Colors.orange.withValues(alpha: 0.1),
+                      child: Icon(Icons.notifications, color: isDue ? Colors.red : Colors.orange),
+                    ),
+                    title: Text(reminder.title),
+                    subtitle: Text(
+                      isDue
+                          ? 'Due: ${_formatDateTime(reminder.remindAt)}'
+                          : 'Scheduled: ${_formatDateTime(reminder.remindAt)}',
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.check),
+                          onPressed: () => ref.read(remindersProvider.notifier).dismissReminder(reminder.id),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () => ref.read(remindersProvider.notifier).deleteReminder(reminder.id),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
     );
+  }
+
+  String _formatDateTime(DateTime dt) {
+    return '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }
 
