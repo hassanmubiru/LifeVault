@@ -551,20 +551,18 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     setState(() { _isLoading = true; _error = null; });
 
     try {
-      final deviceId = await apiClient.getOrCreateDeviceId();
-
       Map<String, dynamic>? result;
       if (widget.isLogin) {
         result = await apiClient.post('/auth/login', body: {
           'email': email,
           'password': password,
-          'deviceId': deviceId,
+          'deviceName': 'Mobile Device',
         });
       } else {
         result = await apiClient.post('/auth/register', body: {
           'email': email,
           'password': password,
-          'deviceId': deviceId,
+          'deviceName': 'Mobile Device',
         });
       }
 
